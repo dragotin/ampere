@@ -20,3 +20,10 @@ Folling this: https://medium.com/geekculture/deploying-influxdb-2-0-using-docker
 - Setup a bucket and stuff: `docker exec influxdb influx setup --bucket ocis1 --org ownCloud --password 123456 --username owncloud --force`
 
 Goto http://localhost:8086 to configure stuff.
+
+# Setup System Monitoring
+
+This repository contains a small utility `sysmon.py` that collect some basic information about the system state of a test system. That is memory consumption, cpu utilization and network traffic. Obviously that has to be started on the system to test, ie. the Raspberry.
+
+`sysmon.py` has a small REST interface that can be polled by the ampere script to collect system data and put them in a InfluxDB bucket. For that, a bucket called `sysmon` has to be created in the InfluxDB.
+
