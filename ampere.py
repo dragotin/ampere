@@ -37,9 +37,12 @@ _influxUrl = "http://localhost:8086"
 #
 _token = "hrKLJ9wfkN-cKLpGhl7Zd2uMs-vkSeQbEfsdo3YRkhtoh94gwwjav_z8tPbiUu7qr4x0eYN21IKSSa5-qqCqSA=="
 
-# Organisation and bucket name
+# Organisation and bucket name for Influx
 _org = "ownCloud"
 _bucket = "ocis1"
+
+# The system monitoring: Specify the URL to fetch the system params
+_sysmonUrl = 'http://raspberrypi:5000'
 
 ### ======== don't touch below here
 
@@ -176,7 +179,26 @@ def fetchCurrent(prevValue):
 
   # call this every three seconds, with the current val as prev value
   threading.Timer(3.0, fetchCurrent, [current]).start()
-  
+
+def fetchSysMon():
+  if _influxUrl == None:
+    return
+
+  r = requests.get(_sysmonUrl + '/getsys', verify=False, timeout=4)
+
+  if r.status_code == 200:
+    # awesome result
+    data = r.json()
+
+    with InfluxDBClient(url=_influxUrl, token=_token, org=_org) as client:
+      write_api = client.write_api(write_options=SYNCHRONOUS)
+
+      datastr = "sysmon,system=oCIS cpu=%s,mem=%s,netin=%s,netout=%s" % (data["cpu_p"], data["mem_p"], data["nin"], data["nout"])
+      print( "datastring: %s"% datastr)
+      write_api.write("sysmon", _org, datastr)
+      client.close()
+
+  threading.Timer(3.0, fetchSysMon).start()
 
 # =====================================================================
 # main starts here
@@ -209,6 +231,11 @@ if _pipe != None:
 # Start the timer here, with 0 as previous value:
 threading.Timer(3.0, fetchCurrent, [0]).start()
 print ("Measurement starts in a few seconds")
+
+# start the system monitor
+if _sysmonUrl != None:
+  threading.Timer(3.0, fetchSysMon).start()
+
 
 # Some nice lights in the ammeter device:
 led(0,0,0,   0,  82)
