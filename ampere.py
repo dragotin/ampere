@@ -9,6 +9,12 @@
 import threading
 import requests
 import serial, sys, time
+import os, stat, sys
+
+from datetime import datetime
+
+from influxdb_client import InfluxDBClient, Point, WritePrecision
+from influxdb_client.client.write_api import SYNCHRONOUS
 
 # configuration - edit here: 
 
@@ -18,7 +24,26 @@ _tasmoUrl = 'http://192.168.0.102'
 # maximum current in milli ampere
 _maxMilliAmp = 250
 
-# The device is supposed to provide this API:
+# Settings to output measurements into a named pipe.
+# Set the pipe variable to a path to let the script write
+# results to the named pipe with that name.
+_pipe = None # '/tmp/ampere.pipe'
+
+# Influx configuration
+# Set _influxUrl to None for no influx output
+_influxUrl = "http://localhost:8086"
+
+# generate a Token from the "Tokens Tab" in the UI
+#
+_token = "hrKLJ9wfkN-cKLpGhl7Zd2uMs-vkSeQbEfsdo3YRkhtoh94gwwjav_z8tPbiUu7qr4x0eYN21IKSSa5-qqCqSA=="
+
+# Organisation and bucket name
+_org = "ownCloud"
+_bucket = "ocis1"
+
+### ======== don't touch below here
+
+# The net plug device is supposed to provide this API:
 # [kf:~] $ http 'http://192.168.0.102/cm?cmnd=Status%2010'
 # HTTP/1.1 200 OK
 # Accept-Ranges: none
@@ -63,6 +88,9 @@ def moveto(x):
   # time.sleep(0.1)
 
 def led(r, g, b, first=None, last=None):
+  if not ser:
+    return
+
   if last is None: last = first
   time.sleep(0.1)
   if first is None:
@@ -91,67 +119,98 @@ def toAmperemeter(milliAmp):
   print( "XX Normalized value (0..100): {0}".format(mover))
   moveto( mover)
   color(mover)
+  _prevCurrent = milliAmp
 
 
 # Not yet used or working - feed data to InfluxDB
 def toInflux(timestamp, current):
-  
-  # You can generate a Token from the "Tokens Tab" in the UI
-  token = "kYwjpIN2lvYxv6usfbKub1pcDF559TstbSvIdJXR91NwqCbtk9Np38206K2YKpQrrcsmZm_0_ShQN6Lxf-kk6w=="
-  org = "ownCloud"
-  bucket = "ocis1"
 
-  write_api = client.write_api(write_options=SYNCHRONOUS)
+  if _influxUrl == None:
+    return
 
-  data = "mem,host=host1 used_percent=23.43234543"
-  write_api.write(bucket, org, data)
-  client = InfluxDBClient(url="http://localhost:8086", token=token)
+  with InfluxDBClient(url=_influxUrl, token=_token, org=_org) as client:
+    write_api = client.write_api(write_options=SYNCHRONOUS)
 
-def fetchCurrent():
-  # call this every three seconds
-  threading.Timer(3.0, fetchCurrent).start()
+    data = "current,system=oCIS current=%s" % current
+    write_api.write(_bucket, _org, data)
+    client.close()
+
+def toNamedPipe(timestamp, current):
+  if _pipe == None:
+    return
+
+  t = timestamp # .replace("T", " ")
+  p = "{timestamp};{current}.0\r\n".format(timestamp=t, current = current)
+
+  fifo = open(_pipe, "a")
+  fifo.write(p)
+  fifo.close
+
+def handleCurrentCurrent(timestamp, current, prevValue):
+  if ser != None  and current != prevValue:
+    toAmperemeter(current)
+
+  toInflux(timestamp, current)
+
+  if _pipe != None and stat.S_ISFIFO(os.stat(_pipe).st_mode):
+    toNamedPipe(timestamp, current)
+
+def fetchCurrent(prevValue):
   # print ("Fetching Current!")
   
-  r = requests.get(_tasmoUrl + '/cm?cmnd=Status%2010')
+  r = requests.get(_tasmoUrl + '/cm?cmnd=Status%2010', verify=False, timeout=4)
 
   if r.status_code == 200:
-      # awesome result
+    # awesome result
     data = r.json()
     
     currentF = float(data["StatusSNS"]["ENERGY"]["Current"])
     current = int(currentF * 1000)
     timestamp = data["StatusSNS"]["Time"]
     
-    print( "XX {0}: {1}".format(timestamp, current) )
-    
-    toAmperemeter(current)
-    # toInflux(timestamp, current)
-    
-    # color(percent)
+    print( "Measurement {0}: {1} mA".format(timestamp, current) )
+
+    handleCurrentCurrent(timestamp, current, prevValue)
   else:
     print( "Request not successful" )
+
+  # call this every three seconds, with the current val as prev value
+  threading.Timer(3.0, fetchCurrent, [current]).start()
   
 
 # =====================================================================
+# main starts here
+#
+ser = None
 
 if len(sys.argv) < 2:
-  print("\nUsage: %s PORT\n\nAvailable ports are:" % sys.argv[0])
+  print("\nNo Amperemeter port given as command line option.\n\nAvailable ports are:")
 
   import serial.tools.list_ports as L
 
   for p in map(lambda x: x.device, L.comports()):
      print("  " + p)
   print("\n")
-  sys.exit(1)
 
-ser = serial.Serial(sys.argv[1], baudrate=115200, bytesize=serial.EIGHTBITS, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_TWO)
+else:
+  ser = serial.Serial(sys.argv[1], baudrate=115200, bytesize=serial.EIGHTBITS, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_TWO)
+  _amperemeter = True
 
+# Initialize the named pipe that can be read by tools like LabPlot
+
+if _pipe != None:
+  try:
+    os.mkfifo(_pipe)
+  except OSError as e:
+    print ("Failed to create FIFO: %s" % e)
+
+  print ("Named pipe receives data: %s" % _pipe)
+
+# Start the timer here, with 0 as previous value:
+threading.Timer(3.0, fetchCurrent, [0]).start()
+print ("Measurement starts in a few seconds")
+
+# Some nice lights in the ammeter device:
 led(0,0,0,   0,  82)
-# led(0,20,0, 26, 28)
-
-# led(10,20,20, 9, 25)
-
-# Start the timer here:
-fetchCurrent()
 
 
