@@ -27,3 +27,41 @@ This repository contains a small utility `sysmon.py` that collect some basic inf
 
 `sysmon.py` has a small REST interface that can be polled by the ampere script to collect system data and put them in a InfluxDB bucket. For that, a bucket called `sysmon` has to be created in the InfluxDB.
 
+# Setup k6 based Test
+
+## cdperf
+
+cdperf is only used to provide the tests. The cdperf script itself is not used here.
+
+1. Clone cdperf
+2. `yarn build`
+
+-> tests are in the `tests` directory.
+
+## Install k6
+
+Download rpm from https://dl.k6.io/rpm/
+
+Installl the rpm: `sudo rpm -Uhv ~/downloads/k6-v0.40.0-amd64.rpm`
+
+Run tests, for example with:
+`CLOUD_HOST=https://odroidhc4:9200 k6 run --duration=20s ./tests/cdperf/issue-github-ocis-1018-propfind-flat-1000-files.js`
+
+
+# Setup the Odroids
+
+## Setup Docker
+
+`curl -fsSL https://get.docker.com -o get-docker.sh`
+`DRY_RUN=1 sh ./get-docker.sh`
+`sudo apt-get install docker-compose`
+
+# Two test hosts
+
+## odroidnc - Test host for nextcloud
+
+
+
+
+
+
