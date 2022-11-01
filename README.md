@@ -50,6 +50,41 @@ Run tests, for example with:
 
 # Setup the Odroids
 
+## Ubuntu 22.04 LTS
+
+Ubuntu 22.04 LTS is used as a test OS.
+
+### Installation
+
+Installed via net install in Petitboot which is preinstalled on the odroids. 
+
+To do that, perform the following steps:
+
+1. Boot into Petitboot
+2. Leave Petitboot with `exit to shell`
+3. Enter the command `udhcpc`
+4. Enter the command `netboot-default`
+5. `exit` to go back to the Petitboot. Now there should be installation options.
+
+If the list of installation options remains empty, repeat the steps until they appear.
+
+### Additional Packages
+
+The following extra packages have to be installed:
+- openssh-server for SSH access
+    - `sudo apt install openssh-server`
+    - `sudo systemctl status ssh` to check the status
+    - `sudo ufw allow ssh` to open the firewall
+- docker (if needed)
+    - `sudo apt install docker.io`
+    - Add the user to the docker group: `sudo usermod -aG docker $USER`
+    - Reload groups: `newgrp docker`
+    - Check the install: `docker run hello-world`
+- docker-compose
+    - `sudo apt install docker-compose`
+
+
+
 ## Setup Docker
 
 `curl -fsSL https://get.docker.com -o get-docker.sh`
