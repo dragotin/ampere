@@ -19,7 +19,7 @@ from influxdb_client.client.write_api import SYNCHRONOUS
 # configuration - edit here: 
 
 # The URL of the tasmota device.
-_tasmoUrl = 'http://192.168.0.102'
+_tasmoUrl = 'http://192.168.0.100'
 
 # maximum current in milli ampere
 _maxMilliAmp = 250
@@ -42,7 +42,7 @@ _org = "ownCloud"
 _bucket = "ocis1"
 
 # The system monitoring: Specify the URL to fetch the system params
-_sysmonUrl = 'http://raspberrypi:5000'
+_sysmonUrl = 'http://192.168.0.106:5000'
 
 ### ======== don't touch below here
 

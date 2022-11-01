@@ -60,8 +60,7 @@ Run tests, for example with:
 
 ## odroidnc - Test host for nextcloud
 
+# Setup ODroid HC4
 
-
-
-
+see https://www.armbian.com/odroid-hc4/
 
