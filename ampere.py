@@ -8,8 +8,10 @@
 
 import threading
 import requests
+from requests.exceptions import ConnectTimeout, ReadTimeout
 import serial, sys, time
 import os, stat, sys
+import configparser
 
 from datetime import datetime
 
@@ -18,11 +20,19 @@ from influxdb_client.client.write_api import SYNCHRONOUS
 
 # configuration - edit here: 
 
-# The URL of the tasmota device.
-_tasmoUrl = 'http://192.168.0.100'
+config = configparser.ConfigParser()
 
-# maximum current in milli ampere
-_maxMilliAmp = 250
+config['ocis'] = { 
+  'tasmoUrl': 'http://192.168.0.100',
+  'maxMilliAmp': 250,
+  'bucket': 'energytest',
+  'sysmonUrl' : 'http://ocishc4:5000' }
+
+config['NC'] = { 
+  'tasmoUrl': 'http://192.168.0.103', # The URL of the tasmota device.
+  'maxMilliAmp': 250,
+  'bucket': 'energytest',
+  'sysmonUrl' : 'http://phphc4:5000' }
 
 # Settings to output measurements into a named pipe.
 # Set the pipe variable to a path to let the script write
@@ -35,14 +45,9 @@ _influxUrl = "http://localhost:8086"
 
 # generate a Token from the "Tokens Tab" in the UI
 #
-_token = "hrKLJ9wfkN-cKLpGhl7Zd2uMs-vkSeQbEfsdo3YRkhtoh94gwwjav_z8tPbiUu7qr4x0eYN21IKSSa5-qqCqSA=="
-
+_token = "i5nFUqvsmJ3aPpJx0TbpGH8l1s4eRnGiDNd59daF3QNACwhg7IFQSWWGpraonJSEqjVMWZwIQ0EMlfP9PSVOgQ=="
 # Organisation and bucket name for Influx
 _org = "ownCloud"
-_bucket = "ocis1"
-
-# The system monitoring: Specify the URL to fetch the system params
-_sysmonUrl = 'http://192.168.0.106:5000'
 
 ### ======== don't touch below here
 
@@ -113,10 +118,11 @@ def color(percent):
 
 def toAmperemeter(milliAmp):
   # The firmware moves the zeiger from 0..100
-  if milliAmp > _maxMilliAmp:
-    milliAmp = _maxMilliAmp-1
+  maxMilli = int(config[_service]['maxMilliAmp'])
+  if milliAmp > maxMilli:
+    milliAmp = maxMilli-1
 
-  divisor = float(100.0/_maxMilliAmp)
+  divisor = float(100.0/maxMilli)
 
   mover = int(milliAmp * divisor)
   print( "XX Normalized value (0..100): {0}".format(mover))
@@ -126,7 +132,7 @@ def toAmperemeter(milliAmp):
 
 
 # Not yet used or working - feed data to InfluxDB
-def toInflux(timestamp, current):
+def toInflux(service, timestamp, current):
 
   if _influxUrl == None:
     return
@@ -134,8 +140,8 @@ def toInflux(timestamp, current):
   with InfluxDBClient(url=_influxUrl, token=_token, org=_org) as client:
     write_api = client.write_api(write_options=SYNCHRONOUS)
 
-    data = "current,system=oCIS current=%s" % current
-    write_api.write(_bucket, _org, data)
+    data = "current,system=%s current=%s" % (service, current)
+    write_api.write(config[service]['bucket'], _org, data)
     client.close()
 
 def toNamedPipe(timestamp, current):
@@ -149,56 +155,72 @@ def toNamedPipe(timestamp, current):
   fifo.write(p)
   fifo.close
 
-def handleCurrentCurrent(timestamp, current, prevValue):
+def handleCurrentCurrent(service, timestamp, current, prevValue):
   if ser != None  and current != prevValue:
-    toAmperemeter(current)
+    toAmperemeter(current) # todo: Amperemeter per service
 
-  toInflux(timestamp, current)
+  toInflux(service, timestamp, current)
 
   if _pipe != None and stat.S_ISFIFO(os.stat(_pipe).st_mode):
     toNamedPipe(timestamp, current)
 
-def fetchCurrent(prevValue):
+def fetchCurrent(service, prevValue):
   # print ("Fetching Current!")
-  
-  r = requests.get(_tasmoUrl + '/cm?cmnd=Status%2010', verify=False, timeout=4)
+  url = config[service]['tasmoUrl']
 
-  if r.status_code == 200:
-    # awesome result
-    data = r.json()
-    
-    currentF = float(data["StatusSNS"]["ENERGY"]["Current"])
-    current = int(currentF * 1000)
-    timestamp = data["StatusSNS"]["Time"]
-    
-    print( "Measurement {0}: {1} mA".format(timestamp, current) )
+  current = prevValue # in case there is an exception or error, we need a proper value for the next call.
 
-    handleCurrentCurrent(timestamp, current, prevValue)
-  else:
-    print( "Request not successful" )
+  try:
+    r = requests.get( url+'/cm?cmnd=Status%2010', verify=False, timeout=4)
+    
+    if r.status_code == 200:
+      # awesome result
+      data = r.json()
+
+      currentF = float(data["StatusSNS"]["ENERGY"]["Current"])
+      current = int(currentF * 1000)
+      timestamp = data["StatusSNS"]["Time"]
+
+      print( "Measurement on {0}: {1} {2} mA".format(service, timestamp, current) )
+
+      handleCurrentCurrent(service, timestamp, current, prevValue)
+    else:
+      print( "Request not successful with resultcode != 200")
+  except ConnectTimeout:
+    print('Request has timed out')
+  except ReadTimeout:
+    print('Request has timed out to read')
 
   # call this every three seconds, with the current val as prev value
-  threading.Timer(3.0, fetchCurrent, [current]).start()
+  threading.Timer(3.0, fetchCurrent, [service, current]).start()
 
-def fetchSysMon():
+def fetchSysMon(service):
   if _influxUrl == None:
     return
 
-  r = requests.get(_sysmonUrl + '/getsys', verify=False, timeout=4)
+  url = config[service]['sysmonUrl'] + '/getsys'
+  print("Sysmon URL: %s"% url)
+  try:
+    r = requests.get(url, verify=False, timeout=4)
 
-  if r.status_code == 200:
-    # awesome result
-    data = r.json()
+    if r.status_code == 200:
+      # awesome result
+      data = r.json()
 
-    with InfluxDBClient(url=_influxUrl, token=_token, org=_org) as client:
-      write_api = client.write_api(write_options=SYNCHRONOUS)
+      with InfluxDBClient(url=_influxUrl, token=_token, org=_org) as client:
+        write_api = client.write_api(write_options=SYNCHRONOUS)
 
-      datastr = "sysmon,system=oCIS cpu=%s,mem=%s,netin=%s,netout=%s" % (data["cpu_p"], data["mem_p"], data["nin"], data["nout"])
-      print( "datastring: %s"% datastr)
-      write_api.write("sysmon", _org, datastr)
-      client.close()
+        datastr = "sysmon,system=%s cpu=%s,mem=%s,netin=%s,netout=%s" % (service, data["cpu_p"], data["mem_p"], data["nin"], data["nout"])
+        print( "datastring: %s"% datastr)
+        write_api.write("sysmon", _org, datastr)
+        client.close()
+  except ConnectTimeout:
+    print('Request has timed out to connect')
+  except ReadTimeout:
+    print('Request has timed out to read')
 
-  threading.Timer(3.0, fetchSysMon).start()
+
+  threading.Timer(3.0, fetchSysMon, [service]).start()
 
 # =====================================================================
 # main starts here
@@ -229,13 +251,18 @@ if _pipe != None:
   print ("Named pipe receives data: %s" % _pipe)
 
 # Start the timer here, with 0 as previous value:
-threading.Timer(3.0, fetchCurrent, [0]).start()
+# threading.Timer(3.0, fetchCurrent, [0]).start()
 print ("Measurement starts in a few seconds")
 
 # start the system monitor
-if _sysmonUrl != None:
-  threading.Timer(3.0, fetchSysMon).start()
+# threading.Timer(3.0, fetchSysMon, ['ocis']).start()
+# time.sleep(1)
+# threading.Timer(3.0, fetchSysMon, ['NC']).start()
 
+# start the energy measuring per service
+threading.Timer(3.0, fetchCurrent, ['ocis', 0]).start()
+time.sleep(1)
+threading.Timer(3.0, fetchCurrent, ['NC', 0]).start()
 
 # Some nice lights in the ammeter device:
 led(0,0,0,   0,  82)

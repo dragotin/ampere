@@ -27,6 +27,9 @@ This repository contains a small utility `sysmon.py` that collect some basic inf
 
 `sysmon.py` has a small REST interface that can be polled by the ampere script to collect system data and put them in a InfluxDB bucket. For that, a bucket called `sysmon` has to be created in the InfluxDB.
 
+To run sysmon.py, two packages have to be installed:
+`sudo apt install python3-flask python3-psutil`
+
 # Setup k6 based Test
 
 ## cdperf
@@ -42,7 +45,7 @@ cdperf is only used to provide the tests. The cdperf script itself is not used h
 
 Download rpm from https://dl.k6.io/rpm/
 
-Installl the rpm: `sudo rpm -Uhv ~/downloads/k6-v0.40.0-amd64.rpm`
+Install the rpm: `sudo rpm -Uhv ~/downloads/k6-v0.40.0-amd64.rpm`
 
 Run tests, for example with:
 `CLOUD_HOST=https://odroidhc4:9200 k6 run --duration=20s ./tests/cdperf/issue-github-ocis-1018-propfind-flat-1000-files.js`
